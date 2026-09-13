@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "studyshield-rebuild",
   "main": "worker/index.js",
-  "compatibility_date": "2026-09-06",
+  "compatibility_date": "2026-09-13",
   "ai": {
     "binding": "AI"
   },
@@ -17,5 +17,9 @@
     "GROQ_MODEL": "openai/gpt-oss-120b",
     "GROQ_SEARCH_MODEL": "groq/compound",
     "WORKERS_AI_MODEL": "@cf/meta/llama-3.1-8b-instruct-fast"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
   }
 }

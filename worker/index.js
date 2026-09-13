@@ -1,4 +1,5 @@
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const MAX_REQUEST_BYTES = 200_000;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,11 +21,19 @@ export default {
 
     if (url.pathname === "/api/ai" && request.method === "POST") {
       try {
+        const contentLength = Number(request.headers.get("content-length") || 0);
+        if (contentLength > MAX_REQUEST_BYTES) {
+          return json({ ok: false, error: "AI request is too large." }, 413);
+        }
         const payload = await request.json();
+        if (!payload || typeof payload.prompt !== "string" || !payload.prompt.trim()) {
+          return json({ ok: false, error: "prompt is required." }, 400);
+        }
         const result = await invokeStudyShieldAI(payload, env);
         return json({ ok: true, ...result });
       } catch (error) {
-        return json({ ok: false, error: error.message || "AI request failed" }, 500);
+        console.error(JSON.stringify({ event: "ai_request_failed", message: error.message }));
+        return json({ ok: false, error: error.message || "AI request failed" }, 502);
       }
     }
 
@@ -60,26 +69,68 @@ async function invokeStudyShieldAI(payload, env) {
 }
 
 async function callGroq(payload, env) {
-  const model = payload.addContextFromInternet ? (env.GROQ_SEARCH_MODEL || env.GROQ_MODEL) : (env.GROQ_MODEL || "openai/gpt-oss-120b");
+  const model = env.GROQ_MODEL || "openai/gpt-oss-120b";
+  let messages = buildMessages(payload);
+
+  if (payload.addContextFromInternet) {
+    const searchModel = env.GROQ_SEARCH_MODEL || "groq/compound";
+    const research = await requestGroq({
+      apiKey: env.GROQ_API_KEY,
+      body: {
+        model: searchModel,
+        messages,
+        temperature: 0.1,
+        max_completion_tokens: 3000
+      }
+    });
+    const researchText = research?.choices?.[0]?.message?.content || "";
+    messages = [
+      ...messages,
+      {
+        role: "user",
+        content: [
+          "以下はWeb検索を行った調査メモです。URL、発行元、日付を保ちながら回答に反映してください。",
+          "不確かな内容は断定せず、検索メモにない事実を作らないでください。",
+          researchText
+        ].join("\n\n")
+      }
+    ];
+  }
+
   const body = {
     model,
-    messages: buildMessages(payload),
+    messages,
     temperature: 0.2,
     max_completion_tokens: 2200
   };
 
   if (payload.schema) {
+    const schema = makeStrictSchema(payload.schema);
     body.response_format = {
       type: "json_schema",
-      json_schema: payload.schema
+      json_schema: {
+        name: schemaName(payload.context?.task),
+        strict: true,
+        schema
+      }
     };
   }
 
+  const data = await requestGroq({ apiKey: env.GROQ_API_KEY, body });
+
+  return {
+    provider: "groq",
+    model,
+    data: normalizeGroqContent(data, Boolean(payload.schema))
+  };
+}
+
+async function requestGroq({ apiKey, body }) {
   const response = await fetch(GROQ_CHAT_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.GROQ_API_KEY}`
+      "Authorization": `Bearer ${apiKey}`
     },
     body: JSON.stringify(body)
   });
@@ -88,12 +139,7 @@ async function callGroq(payload, env) {
   if (!response.ok) {
     throw new Error(data?.error?.message || `Groq request failed with ${response.status}`);
   }
-
-  return {
-    provider: "groq",
-    model,
-    data: normalizeGroqContent(data, Boolean(payload.schema))
-  };
+  return data;
 }
 
 async function callWorkersAI(payload, env) {
@@ -166,6 +212,26 @@ function parseJsonLike(value) {
     if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
     throw new Error("AI response was not valid JSON.");
   }
+}
+
+function makeStrictSchema(schema) {
+  if (Array.isArray(schema)) return schema.map(makeStrictSchema);
+  if (!schema || typeof schema !== "object") return schema;
+
+  const normalized = {};
+  for (const [key, value] of Object.entries(schema)) {
+    normalized[key] = makeStrictSchema(value);
+  }
+  if (normalized.type === "object" && normalized.properties) {
+    normalized.required = Object.keys(normalized.properties);
+    normalized.additionalProperties = false;
+  }
+  return normalized;
+}
+
+function schemaName(task) {
+  const safeTask = String(task || "result").toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+  return `studyshield_${safeTask || "result"}`;
 }
 
 function json(data, status = 200) {
