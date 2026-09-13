@@ -1,3 +1,98 @@
+:root {
+  --background: 222 52% 6%;
+  --foreground: 210 30% 96%;
+  --card: 221 46% 10%;
+  --card-foreground: 210 30% 96%;
+  --popover: 221 46% 10%;
+  --popover-foreground: 210 30% 96%;
+  --primary: 194 100% 50%;
+  --primary-foreground: 222 52% 6%;
+  --secondary: 218 42% 17%;
+  --secondary-foreground: 210 30% 96%;
+  --muted: 220 38% 14%;
+  --muted-foreground: 216 18% 68%;
+  --accent: 216 90% 58%;
+  --accent-foreground: 222 52% 6%;
+  --border: 216 45% 27%;
+  --input: 221 42% 12%;
+  --ring: 194 100% 50%;
+  --panel: 221 46% 10%;
+  --panel-dark: 223 52% 7%;
+  --shadow: 226 65% 2%;
+  --chart-1: 194 100% 50%;
+  --chart-2: 216 90% 58%;
+  --sidebar-background: 223 54% 7%;
+  --sidebar-primary: 194 100% 50%;
+  --sidebar-primary-foreground: 222 52% 6%;
+  --sidebar-accent: 219 45% 15%;
+  --sidebar-border: 216 45% 27%;
+  --sidebar-ring: 194 100% 50%;
+}
+
+.startup-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  overflow: hidden;
+  background: hsl(var(--background));
+  opacity: 1;
+  transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+.startup-splash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 48%, hsl(var(--primary) / 0.12), transparent 42%);
+  pointer-events: none;
+}
+
+.startup-splash-leaving {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.startup-logo {
+  position: relative;
+  width: min(78vw, 34rem);
+  max-height: 68vh;
+  object-fit: contain;
+  animation: startup-logo-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  filter: drop-shadow(0 0 28px hsl(var(--primary) / 0.24));
+}
+
+.startup-progress {
+  position: relative;
+  width: min(48vw, 15rem);
+  height: 3px;
+  overflow: hidden;
+  background: hsl(var(--border));
+}
+
+.startup-progress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: hsl(var(--primary));
+  transform-origin: left;
+  animation: startup-progress 1.4s ease-out both;
+}
+
+@keyframes startup-logo-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes startup-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
 .app-frame {
   display: flex;
   min-height: 100vh;
@@ -20,9 +115,12 @@
   margin-bottom: 1rem;
 }
 
-.brand-line {
-  font-size: 0.86rem;
-  line-height: 1.55;
+.sidebar-logo {
+  width: 10rem;
+  max-height: 8rem;
+  object-fit: contain;
+  object-position: left center;
+  filter: drop-shadow(0 0 10px hsl(var(--primary) / 0.2));
 }
 
 .sidebar-nav {
@@ -66,11 +164,12 @@
   overflow: hidden;
 }
 
-.guest-banner {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0.75rem;
+.hero-logo {
+  width: min(100%, 22rem);
+  max-height: 15rem;
+  object-fit: contain;
+  object-position: left center;
+  filter: drop-shadow(0 0 18px hsl(var(--primary) / 0.18));
 }
 
 .feature-card {
@@ -400,9 +499,19 @@
     grid-template-columns: 1fr;
   }
 
-  .guest-banner {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 0.25rem;
+  .startup-logo {
+    width: min(90vw, 28rem);
+  }
+
+  .hero-logo {
+    width: min(100%, 18rem);
+    max-height: 12rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-logo,
+  .startup-progress span {
+    animation: none;
   }
 }

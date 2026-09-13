@@ -137,7 +137,7 @@ export const base44 = {
   },
   auth: {
     async me() {
-      return { full_name: "ゲスト" };
+      return { full_name: "StudyShieldユーザー" };
     },
     isAuthenticated() {
       return true;

@@ -18,8 +18,6 @@ import {
   Lightbulb,
   Link as LinkIcon,
   ListChecks,
-  LogIn,
-  Mail,
   Menu,
   MessageSquare,
   Plus,
@@ -33,7 +31,6 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
-  UserPlus,
   X
 } from "lucide-react";
 import {
@@ -85,32 +82,51 @@ const tutorialSteps = [
   { icon: ShieldCheck, title: "信頼度と出典の見方", desc: "信頼度スコアと出典一覧で情報の確かさを確認できます。注意点も必ず読んで、誤情報を見極めましょう。" },
   { icon: Library, title: "ノート保存", desc: "調べた内容は「知識保管庫」に保存できます。自分専用の知識庫として活用しましょう。" },
   { icon: Presentation, title: "スライド作成と提出前チェック", desc: "「発表資料作成」で構成を提案し、「発表前チェック」で問題を指摘します。この順番で使うと発表の質が上がります。" },
-  { icon: Home, title: "ホームに戻る", desc: "どの画面からでも右下の「拠点」ボタンでホームに戻れます。迷ったら押してください。" },
-  { icon: LogIn, title: "ログインでデータ保存", desc: "ログインすると、ノートや出典がアカウントに保存され、再ログイン時に復元されます。安全に学習を続けられます。" }
+  { icon: Home, title: "ホームに戻る", desc: "どの画面からでも右下の「拠点」ボタンでホームに戻れます。迷ったら押してください。" }
 ];
 
 function App() {
+  const [splashVisible, setSplashVisible] = useState(true);
+  const [splashLeaving, setSplashLeaving] = useState(false);
+
+  useEffect(() => {
+    const leaveTimer = window.setTimeout(() => setSplashLeaving(true), 1400);
+    const hideTimer = window.setTimeout(() => setSplashVisible(false), 1900);
+    return () => {
+      window.clearTimeout(leaveTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, []);
+
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<AuthPage mode="login" />} />
-        <Route path="/register" element={<AuthPage mode="register" />} />
-        <Route path="/forgot-password" element={<AuthPage mode="forgot" />} />
-        <Route path="/reset-password" element={<AuthPage mode="reset" />} />
-        <Route element={<Layout />}>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/verification" element={<VerificationPage />} />
-          <Route path="/ai-researcher" element={<AIResearcherPage />} />
-          <Route path="/notes" element={<NotesPage />} />
-          <Route path="/slides" element={<SlidesPage />} />
-          <Route path="/audit" element={<AuditPage />} />
-          <Route path="/references" element={<ReferencesPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Route>
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Router>
+    <>
+      {splashVisible && <StartupSplash leaving={splashLeaving} />}
+      <Router>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/search" element={<SearchPage />} />
+            <Route path="/verification" element={<VerificationPage />} />
+            <Route path="/ai-researcher" element={<AIResearcherPage />} />
+            <Route path="/notes" element={<NotesPage />} />
+            <Route path="/slides" element={<SlidesPage />} />
+            <Route path="/audit" element={<AuditPage />} />
+            <Route path="/references" element={<ReferencesPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Router>
+    </>
+  );
+}
+
+function StartupSplash({ leaving }) {
+  return (
+    <div className={`startup-splash ${leaving ? "startup-splash-leaving" : ""}`} aria-label="StudyShieldを起動中">
+      <img src="/studyshield-logo.png" alt="StudyShield" className="startup-logo" />
+      <div className="startup-progress" aria-hidden="true"><span /></div>
+    </div>
   );
 }
 
@@ -133,8 +149,9 @@ function Layout() {
           <X size={18} />
         </button>
         <div className="sidebar-brand">
-          <div className="font-display text-primary text-glow brand-line">STUDY</div>
-          <div className="font-display text-primary text-glow brand-line">SHIELD</div>
+          <Link to="/" aria-label="StudyShield ホーム">
+            <img src="/studyshield-logo.png" alt="StudyShield" className="sidebar-logo" />
+          </Link>
           <p className="font-heading text-xs text-muted-foreground mt-2">情報信頼性チェック</p>
           <p className="font-heading text-xs text-muted-foreground">学習支援システム</p>
         </div>
@@ -205,90 +222,15 @@ function Tutorial({ onClose }) {
   );
 }
 
-function AuthPage({ mode }) {
-  const copy = {
-    login: { icon: LogIn, title: "ログイン", subtitle: "知識の図書館へ入室します", cta: "▶ ログイン" },
-    register: { icon: UserPlus, title: "新規登録", subtitle: "知識の図書館の利用を開始", cta: "▶ アカウント作成" },
-    forgot: { icon: Mail, title: "パスワードリセット", subtitle: "リセットリンクをメールで送信します", cta: "▶ リセットリンクを送信" },
-    reset: { icon: ShieldCheck, title: "新しいパスワード", subtitle: "新しいパスワードを入力してください", cta: "▶ パスワードを変更" }
-  }[mode];
-  const Icon = copy.icon;
-  const [done, setDone] = useState(false);
-  return (
-    <div className="scanlines crt-vignette min-h-screen flex items-center justify-center bg-background px-4 py-8">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-6">
-          <div className="font-display text-base text-primary text-glow mb-3">STUDY SHIELD</div>
-          <div className="inline-flex items-center justify-center w-14 h-14 pixel-panel bg-card mb-3">
-            <Icon className="w-7 h-7 text-primary" />
-          </div>
-          <h1 className="font-heading text-xl text-foreground">{copy.title}</h1>
-          <p className="font-heading text-sm text-muted-foreground mt-1">{copy.subtitle}</p>
-        </div>
-        <div className="pixel-panel p-6">
-          {done ? (
-            <div className="pixel-panel-inset p-4 text-center">
-              <p className="font-heading text-sm text-primary mb-1">★ 送信完了</p>
-              <p className="text-sm text-muted-foreground">ローカル復元版では認証APIを使わず、ゲスト状態で利用できます。</p>
-              <Link to="/" className="pixel-btn inline-flex px-4 py-2 bg-primary text-primary-foreground text-xs mt-4">
-                拠点へ戻る
-              </Link>
-            </div>
-          ) : (
-            <form
-              className="space-y-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setDone(true);
-              }}
-            >
-              <label className="block">
-                <span className="font-heading text-xs text-muted-foreground block mb-1">メールアドレス</span>
-                <input className="pixel-input px-3 py-2.5 w-full text-sm" type="email" placeholder="you@example.com" />
-              </label>
-              {mode !== "forgot" && (
-                <label className="block">
-                  <span className="font-heading text-xs text-muted-foreground block mb-1">{mode === "reset" ? "新しいパスワード" : "パスワード"}</span>
-                  <input className="pixel-input px-3 py-2.5 w-full text-sm" type="password" placeholder="••••••••" />
-                </label>
-              )}
-              {["register", "reset"].includes(mode) && (
-                <label className="block">
-                  <span className="font-heading text-xs text-muted-foreground block mb-1">パスワード（確認）</span>
-                  <input className="pixel-input px-3 py-2.5 w-full text-sm" type="password" placeholder="••••••••" />
-                </label>
-              )}
-              <button className="pixel-btn w-full px-4 py-3 bg-primary text-primary-foreground text-sm font-heading">{copy.cta}</button>
-            </form>
-          )}
-        </div>
-        <p className="text-center text-sm text-muted-foreground mt-4 font-heading">
-          <Link to="/" className="text-primary hover:underline">ゲストとして続ける</Link>
-          {mode === "login" && <> / <Link to="/register" className="text-primary hover:underline">新規登録</Link></>}
-          {mode !== "login" && <> / <Link to="/login" className="text-primary hover:underline">ログイン</Link></>}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function HomePage() {
-  const [noteCount, setNoteCount] = useState(0);
-  useEffect(() => {
-    base44.entities.Note.list().then((notes) => setNoteCount(notes.length));
-  }, []);
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <section className="pixel-panel p-6 md:p-10 hero-panel">
         <div className="font-display text-[0.6rem] text-muted-foreground mb-3">// KNOWLEDGE LIBRARY</div>
-        <h1 className="font-display text-2xl md:text-4xl text-primary text-glow">STUDY SHIELD</h1>
+        <img src="/studyshield-logo.png" alt="StudyShield" className="hero-logo" />
         <p className="font-heading text-sm md:text-base text-muted-foreground mt-4 max-w-3xl">
           調べ学習の相棒。情報の信頼性を見極め、誤情報を減らし、 安心して調べ・まとめ・発表するための学習支援システム。
         </p>
-        <div className="guest-banner pixel-panel-inset mt-5">
-          <span className="font-heading text-xs text-accent">ゲストモード</span>
-          <span className="text-xs text-muted-foreground">ローカル保存で利用中。知識保管庫ノート: {noteCount}件</span>
-        </div>
         <div className="flex flex-wrap gap-3 mt-6">
           <Link to="/search" className="pixel-btn px-5 py-3 bg-primary text-primary-foreground text-xs inline-flex items-center gap-2">
             <Search size={14} /> ▶ 調査を開始
