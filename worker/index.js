@@ -1,18 +1,24 @@
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MAX_REQUEST_BYTES = 200_000;
+const MAX_PROMPT_LENGTH = 20_000;
+const MAX_CONTEXT_BYTES = 60_000;
+const MAX_SCHEMA_BYTES = 60_000;
+const ALLOWED_TASKS = new Set(["general", "search", "route", "verify", "ai", "slides", "questions", "script", "audit", "summary"]);
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+const corsHeaders = (request) => ({
+  "Access-Control-Allow-Origin": new URL(request.url).origin,
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type"
-};
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Vary": "Origin"
+});
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
+    if (request.method === "OPTIONS" && url.pathname === "/api/ai") {
+      if (!isSameOrigin(request)) return json({ ok: false, error: "Origin is not allowed." }, 403);
+      return new Response(null, { headers: corsHeaders(request) });
     }
 
     if (url.pathname === "/api/health") {
@@ -20,26 +26,135 @@ export default {
     }
 
     if (url.pathname === "/api/ai" && request.method === "POST") {
+      if (!isSameOrigin(request)) {
+        return json({ ok: false, error: "Origin is not allowed." }, 403);
+      }
+
       try {
-        const contentLength = Number(request.headers.get("content-length") || 0);
-        if (contentLength > MAX_REQUEST_BYTES) {
-          return json({ ok: false, error: "AI request is too large." }, 413);
-        }
-        const payload = await request.json();
-        if (!payload || typeof payload.prompt !== "string" || !payload.prompt.trim()) {
-          return json({ ok: false, error: "prompt is required." }, 400);
-        }
+        const parsed = await readAndValidatePayload(request);
+        if (parsed.error) return json({ ok: false, error: parsed.error }, parsed.status);
+        const payload = parsed.payload;
         const result = await invokeStudyShieldAI(payload, env);
-        return json({ ok: true, ...result });
+        return json({ ok: true, ...result }, 200, request);
       } catch (error) {
         console.error(JSON.stringify({ event: "ai_request_failed", message: error.message }));
-        return json({ ok: false, error: error.message || "AI request failed" }, 502);
+        return json({ ok: false, error: "AI request failed." }, 502, request);
       }
     }
 
     return env.ASSETS.fetch(request);
   }
 };
+
+function isSameOrigin(request) {
+  const origin = request.headers.get("Origin");
+  return Boolean(origin) && origin === new URL(request.url).origin;
+}
+
+async function readAndValidatePayload(request) {
+  const contentType = request.headers.get("Content-Type")?.split(";", 1)[0].trim().toLowerCase();
+  if (contentType !== "application/json") {
+    return { error: "Content-Type must be application/json.", status: 415 };
+  }
+
+  const declaredLength = Number(request.headers.get("Content-Length") || 0);
+  if (!Number.isFinite(declaredLength) || declaredLength < 0 || declaredLength > MAX_REQUEST_BYTES) {
+    return { error: "AI request is too large.", status: 413 };
+  }
+
+  const body = await readBodyWithLimit(request, MAX_REQUEST_BYTES);
+  if (!body) {
+    return { error: "AI request is too large.", status: 413 };
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return { error: "Request body must be valid JSON.", status: 400 };
+  }
+
+  if (!isPlainObject(payload)) return { error: "Request body must be a JSON object.", status: 400 };
+  const allowedKeys = new Set(["prompt", "schema", "addContextFromInternet", "context"]);
+  if (Object.keys(payload).some((key) => !allowedKeys.has(key))) {
+    return { error: "Request contains unsupported fields.", status: 400 };
+  }
+  if (typeof payload.prompt !== "string" || !payload.prompt.trim()) {
+    return { error: "prompt is required.", status: 400 };
+  }
+  if (payload.prompt.length > MAX_PROMPT_LENGTH) {
+    return { error: "prompt is too long.", status: 413 };
+  }
+  if (payload.addContextFromInternet !== undefined && typeof payload.addContextFromInternet !== "boolean") {
+    return { error: "addContextFromInternet must be a boolean.", status: 400 };
+  }
+  if (payload.context !== undefined && !isPlainObject(payload.context)) {
+    return { error: "context must be an object.", status: 400 };
+  }
+  if (jsonByteLength(payload.context || {}) > MAX_CONTEXT_BYTES) {
+    return { error: "context is too large.", status: 413 };
+  }
+
+  const task = payload.context?.task || "general";
+  if (typeof task !== "string" || !ALLOWED_TASKS.has(task)) {
+    return { error: "task is not supported.", status: 400 };
+  }
+  if (payload.schema !== undefined && payload.schema !== null) {
+    if (!isPlainObject(payload.schema) || jsonByteLength(payload.schema) > MAX_SCHEMA_BYTES || !isSafeTree(payload.schema)) {
+      return { error: "schema is not valid.", status: 400 };
+    }
+  }
+
+  return {
+    payload: {
+      prompt: payload.prompt.trim(),
+      schema: payload.schema || null,
+      addContextFromInternet: payload.addContextFromInternet === true,
+      context: payload.context || { task }
+    }
+  };
+}
+
+async function readBodyWithLimit(request, limit) {
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function jsonByteLength(value) {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function isSafeTree(value, depth = 0, state = { nodes: 0 }) {
+  if (depth > 12 || ++state.nodes > 600) return false;
+  if (Array.isArray(value)) return value.every((item) => isSafeTree(item, depth + 1, state));
+  if (!value || typeof value !== "object") return true;
+  return Object.entries(value).every(([key, item]) => !["__proto__", "prototype", "constructor"].includes(key) && isSafeTree(item, depth + 1, state));
+}
 
 async function invokeStudyShieldAI(payload, env) {
   const provider = env.AI_PROVIDER || "auto";
@@ -253,11 +368,11 @@ function schemaName(task) {
   return `studyshield_${safeTask || "result"}`;
 }
 
-function json(data, status = 200) {
+function json(data, status = 200, request) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
-      ...corsHeaders,
+      ...(request ? corsHeaders(request) : {}),
       "Content-Type": "application/json; charset=utf-8"
     }
   });
