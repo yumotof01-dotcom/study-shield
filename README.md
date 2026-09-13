@@ -41,4 +41,3 @@ pnpm deploy
 ```
 
 Groqを使わずWorkers AIだけで動かす場合は、`wrangler.jsonc` の `AI_PROVIDER` を `workers-ai` にしてください。
-

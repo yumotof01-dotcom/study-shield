@@ -1088,4 +1088,3 @@ function flash(setter, value) {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
-
