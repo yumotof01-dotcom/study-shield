@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import ReactMarkdown from "react-markdown";
 import { Link, NavLink, Outlet, Route, BrowserRouter as Router, Routes, useLocation } from "react-router-dom";
+import remarkGfm from "remark-gfm";
 import {
   AlertTriangle,
   BookOpen,
@@ -409,8 +411,8 @@ function SearchPage() {
       {saved && <div className="pixel-panel-flat bg-primary/10 border-primary p-3 text-center font-heading text-sm text-primary">{saved}</div>}
       {result && (
         <div className="space-y-4 animate-fade-in">
-          <Panel title="調査結果: 要約" icon={FileText} action={<Badge variant={scoreVariant(result.reliability_score)}>{scoreText(result.reliability_score)}</Badge>}>
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{result.summary}</p>
+          <Panel title="調査結果: 要約" icon={FileText} action={<div className="flex items-center gap-2"><CopyButton text={result.summary} /><Badge variant={scoreVariant(result.reliability_score)}>{scoreText(result.reliability_score)}</Badge></div>}>
+            <MarkdownText>{result.summary}</MarkdownText>
             {result.updated_info && <p className="text-xs text-muted-foreground mt-3">更新情報: {result.updated_info}</p>}
             <div className="pixel-panel-inset p-3 mt-4">
               <div className="font-heading text-xs text-accent mb-2">自動要約</div>
@@ -419,7 +421,7 @@ function SearchPage() {
                   <button key={style} className="pixel-btn px-3 py-1.5 bg-card text-xs" onClick={() => makeSummary(style)}>{style}</button>
                 ))}
               </div>
-              {summary && <p className="text-sm text-foreground/90 mt-3 whitespace-pre-wrap">{summary}</p>}
+              {summary && <div className="mt-3"><MarkdownText>{summary}</MarkdownText></div>}
             </div>
           </Panel>
           <Panel title="信頼性スコア" icon={ShieldCheck}>
@@ -958,14 +960,16 @@ function AssistantMessage({ data }) {
     ["よくある間違い", data.common_mistakes, "text-destructive", AlertTriangle],
     ["似た問題・応用", data.similar_problems, "text-accent", Sparkles]
   ];
+  const copyText = rows.filter(([, body]) => body).map(([title, body]) => `${title}\n${body}`).join("\n\n");
   return (
     <div className="message assistant">
       <Bot size={18} className="text-primary shrink-0" />
       <div className="space-y-2 flex-1">
+        <div className="flex justify-end"><CopyButton text={copyText} /></div>
         {rows.map(([title, body, color, Icon]) => body && (
           <div key={title} className="pixel-panel-inset p-3">
             <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}><Icon size={13} /><span className="font-heading text-xs">{title}</span></div>
-            <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">{body}</p>
+            <MarkdownText>{body}</MarkdownText>
           </div>
         ))}
       </div>
@@ -975,6 +979,37 @@ function AssistantMessage({ data }) {
 
 function UserMessage({ text }) {
   return <div className="message user"><div className="pixel-panel-flat p-3 bg-primary/10"><p className="text-sm whitespace-pre-wrap">{text}</p></div></div>;
+}
+
+function MarkdownText({ children }) {
+  return (
+    <div className="markdown-content text-sm text-foreground/90">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+          input: ({ node, ...props }) => <input {...props} disabled />
+        }}
+      >
+        {String(children || "")}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(String(text || ""));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+  return (
+    <button type="button" onClick={copy} className="pixel-btn copy-button bg-card text-accent" title="回答をコピー" aria-label="回答をコピー">
+      {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+      <span>{copied ? "コピー済み" : "コピー"}</span>
+    </button>
+  );
 }
 
 function ReferenceLine({ refItem }) {

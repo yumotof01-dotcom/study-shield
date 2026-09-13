@@ -204,6 +204,127 @@
   align-items: flex-start;
 }
 
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+  font-family: var(--font-heading);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.markdown-content {
+  min-width: 0;
+  overflow-x: auto;
+  line-height: 1.75;
+}
+
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin: 1.1rem 0 0.55rem;
+  color: hsl(var(--primary));
+  font-family: var(--font-heading);
+  line-height: 1.5;
+}
+
+.markdown-content h1 { font-size: 1.05rem; }
+.markdown-content h2 { font-size: 0.98rem; }
+.markdown-content h3,
+.markdown-content h4 { font-size: 0.9rem; }
+
+.markdown-content p,
+.markdown-content ul,
+.markdown-content ol,
+.markdown-content pre,
+.markdown-content table,
+.markdown-content blockquote {
+  margin: 0.65rem 0;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 1.4rem;
+}
+
+.markdown-content ul { list-style: square; }
+.markdown-content ol { list-style: decimal; }
+
+.markdown-content li + li {
+  margin-top: 0.25rem;
+}
+
+.markdown-content a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+.markdown-content code {
+  padding: 0.1rem 0.3rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--panel-dark));
+  color: hsl(var(--accent));
+  font-family: var(--font-mono);
+}
+
+.markdown-content pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border: 2px solid hsl(var(--border));
+  background: hsl(var(--panel-dark));
+}
+
+.markdown-content pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.markdown-content table {
+  width: 100%;
+  min-width: 32rem;
+  border-collapse: collapse;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid hsl(var(--border));
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content th {
+  background: hsl(var(--muted));
+  color: hsl(var(--accent));
+  font-family: var(--font-heading);
+}
+
+.markdown-content blockquote {
+  padding-left: 0.8rem;
+  border-left: 3px solid hsl(var(--accent));
+  color: hsl(var(--muted-foreground));
+}
+
+.markdown-content hr {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 2px solid hsl(var(--border));
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
