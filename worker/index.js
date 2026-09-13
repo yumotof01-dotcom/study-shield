@@ -46,11 +46,11 @@ async function invokeStudyShieldAI(payload, env) {
   const attempts = [];
 
   if ((provider === "auto" || provider === "groq") && env.GROQ_API_KEY) {
-    attempts.push(() => callGroq(payload, env));
+    attempts.push({ provider: "groq", run: () => callGroq(payload, env) });
   }
 
   if (provider === "auto" || provider === "workers-ai" || provider === "cloudflare") {
-    attempts.push(() => callWorkersAI(payload, env));
+    attempts.push({ provider: "workers-ai", run: () => callWorkersAI(payload, env) });
   }
 
   if (attempts.length === 0) {
@@ -60,9 +60,10 @@ async function invokeStudyShieldAI(payload, env) {
   let lastError;
   for (const attempt of attempts) {
     try {
-      return await attempt();
+      return await attempt.run();
     } catch (error) {
       lastError = error;
+      console.warn(JSON.stringify({ event: "ai_provider_failed", provider: attempt.provider, message: error.message }));
     }
   }
   throw lastError;
@@ -73,16 +74,7 @@ async function callGroq(payload, env) {
   let messages = buildMessages(payload);
 
   if (payload.addContextFromInternet) {
-    const searchModel = env.GROQ_SEARCH_MODEL || "groq/compound";
-    const research = await requestGroq({
-      apiKey: env.GROQ_API_KEY,
-      body: {
-        model: searchModel,
-        messages,
-        temperature: 0.1,
-        max_completion_tokens: 3000
-      }
-    });
+    const research = await researchWithGroq(payload, env);
     const researchText = research?.choices?.[0]?.message?.content || "";
     messages = [
       ...messages,
@@ -123,6 +115,33 @@ async function callGroq(payload, env) {
     model,
     data: normalizeGroqContent(data, Boolean(payload.schema))
   };
+}
+
+async function researchWithGroq(payload, env) {
+  const searchModel = env.GROQ_SEARCH_MODEL || "groq/compound";
+  const messages = buildMessages({ ...payload, schema: null });
+
+  try {
+    return await requestGroq({
+      apiKey: env.GROQ_API_KEY,
+      body: {
+        model: searchModel,
+        messages,
+        max_completion_tokens: 3000
+      }
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "groq_compound_failed", model: searchModel, message: error.message }));
+    return requestGroq({
+      apiKey: env.GROQ_API_KEY,
+      body: {
+        model: env.GROQ_MODEL || "openai/gpt-oss-120b",
+        messages,
+        tools: [{ type: "browser_search" }],
+        max_completion_tokens: 3000
+      }
+    });
+  }
 }
 
 async function requestGroq({ apiKey, body }) {
