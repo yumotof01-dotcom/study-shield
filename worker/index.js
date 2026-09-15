@@ -1,3 +1,5 @@
+import { normalizeSearchResult } from "../src/domain/searchResult.js";
+
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MAX_REQUEST_BYTES = 200_000;
 const MAX_PROMPT_LENGTH = 20_000;
@@ -175,7 +177,11 @@ async function invokeStudyShieldAI(payload, env) {
   let lastError;
   for (const attempt of attempts) {
     try {
-      return await attempt.run();
+      const result = await attempt.run();
+      if (payload.context?.task === "search") {
+        result.data = normalizeSearchResult(result.data, { topic: payload.context?.input || "" });
+      }
+      return result;
     } catch (error) {
       lastError = error;
       console.warn(JSON.stringify({ event: "ai_provider_failed", provider: attempt.provider, message: error.message }));
@@ -288,7 +294,7 @@ async function callWorkersAI(payload, env) {
   if (payload.schema) {
     input.response_format = {
       type: "json_schema",
-      json_schema: payload.schema
+      json_schema: makeStrictSchema(payload.schema)
     };
   }
 
@@ -304,6 +310,9 @@ function buildMessages(payload) {
   const task = payload.context?.task || "general";
   const schemaLine = payload.schema ? "必ず指定されたJSON Schemaに合うJSONだけで返してください。" : "自然な日本語テキストで返してください。";
   const webLine = payload.addContextFromInternet ? "可能な場合は現在の情報や公的・教育機関・研究機関の情報源を重視してください。" : "与えられた情報をもとに回答してください。";
+  const searchLine = task === "search" && payload.context?.input
+    ? `調査テーマは「${payload.context.input}」です。summaryの冒頭にこのテーマ名をそのまま含め、題名だけではなく具体的な調査結果を3文以上で説明してください。独立した出典を2件以上示し、各出典のreliabilityは「高い」「中程度」「低い」のいずれかにしてください。reliability_scoreとconsistency_rateは0から100の百分率で採点し、0から1の小数尺度は使わないでください。テーマに直接対応する内容だけを返してください。`
+    : "";
 
   return [
     {
@@ -315,8 +324,9 @@ function buildMessages(payload) {
         "不確かな場合は断定せず、追加確認が必要だと明記してください。",
         schemaLine,
         webLine,
+        searchLine,
         `task=${task}`
-      ].join("\n")
+      ].filter(Boolean).join("\n")
     },
     { role: "user", content: payload.prompt || "" }
   ];

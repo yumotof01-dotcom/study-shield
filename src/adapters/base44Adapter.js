@@ -10,10 +10,10 @@ const defaultSettings = {
 export const SEARCH_SCHEMA = {
   type: "object",
   properties: {
-    summary: { type: "string" },
-    sources: { type: "array", items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" }, publisher: { type: "string" }, date: { type: "string" }, reliability: { type: "string" } } } },
-    reliability_score: { type: "number" },
-    consistency_rate: { type: "number" },
+    summary: { type: "string", minLength: 24 },
+    sources: { type: "array", minItems: 2, items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" }, publisher: { type: "string" }, date: { type: "string" }, reliability: { type: "string", enum: ["高い", "中程度", "低い"] } } } },
+    reliability_score: { type: "number", minimum: 0, maximum: 100, description: "出典の質と根拠の十分さを0から100の百分率で採点した数値。0から1の小数ではない。" },
+    consistency_rate: { type: "number", minimum: 0, maximum: 100, description: "複数資料の内容が一致する割合を0から100の百分率で採点した数値。0から1の小数ではない。" },
     cautions: { type: "array", items: { type: "string" } },
     related_keywords: { type: "array", items: { type: "string" } },
     perspectives: { type: "array", items: { type: "object", properties: { view: { type: "string" }, summary: { type: "string" } } } },
@@ -166,32 +166,33 @@ export function clearTutorial() {
 
 export async function callAI(prompt, schema, addContextFromInternet = false, context = {}) {
   const endpoint = import.meta.env.VITE_AI_ENDPOINT || "/api/ai";
-  const shouldUseRemote = import.meta.env.VITE_USE_MOCK_AI !== "true";
-
-  if (shouldUseRemote) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          schema,
-          addContextFromInternet,
-          context
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || `AI endpoint failed with ${response.status}`);
-      }
-      return payload.data;
-    } catch (error) {
-      console.warn("StudyShield AI endpoint unavailable; using local mock.", error);
-    }
+  if (import.meta.env.VITE_USE_MOCK_AI === "true") {
+    await delay(450);
+    return mockLLM({ prompt, schema, addContext: addContextFromInternet, context });
   }
 
-  await delay(450);
-  return mockLLM({ prompt, schema, addContext: addContextFromInternet, context });
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, schema, addContextFromInternet, context })
+    });
+  } catch {
+    throw new Error("AIサーバーに接続できませんでした。通信状態を確認して、もう一度お試しください。");
+  }
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("AIサーバーから正しい形式の応答を受け取れませんでした。もう一度お試しください。");
+  }
+  if (!response.ok || !payload?.ok) {
+    if (response.status === 413) throw new Error("入力内容が長すぎます。短くしてからもう一度お試しください。");
+    throw new Error("調査結果を取得できませんでした。少し待ってからもう一度お試しください。");
+  }
+  return payload.data;
 }
 
 function mockLLM({ context }) {

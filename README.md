@@ -6,7 +6,7 @@
 - 画面構成、ナビ、右下「拠点」ボタン、チュートリアル、設定、ノート、出典、調査、検証、AI研究員、発表資料作成、発表前チェックを実装
 - Base44固有APIは `src/adapters/base44Adapter.js` に分離
 - ノートと出典、設定は `localStorage` に保存
-- AI呼び出しは `/api/ai` のCloudflare Workerへ送信し、未設定時はローカルのモック応答へフォールバック
+- AI呼び出しは `/api/ai` のCloudflare Workerへ送信し、開発時に `VITE_USE_MOCK_AI=true` を明示した場合のみローカルモックを使用
 
 ## Run
 

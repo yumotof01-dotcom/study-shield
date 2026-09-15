@@ -47,6 +47,7 @@ import {
   getSettings,
   saveSettings
 } from "./adapters/base44Adapter.js";
+import { normalizeSearchResult } from "./domain/searchResult.js";
 import "./styles/original-studyshield.css";
 import "./styles/app.css";
 
@@ -272,6 +273,7 @@ function SearchPage() {
   const [route, setRoute] = useState(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [saved, setSaved] = useState("");
+  const [error, setError] = useState("");
 
   const runSearch = async () => {
     if (!theme.trim()) return;
@@ -279,15 +281,27 @@ function SearchPage() {
     setResult(null);
     setSummary("");
     setRoute(null);
-    const prompt = `テーマ「${theme}」について、学年レベル「${settings.gradeLevel}」、検索モード「${settings.searchMode}」に合わせて調査してください。信頼度スコアは厳格に採点し、安易に80以上をつけないでください。`;
-    const data = await callAI(prompt, SEARCH_SCHEMA, true, { task: "search", input: theme, settings });
-    setResult(data);
-    setLoading(false);
+    setError("");
+    try {
+      const prompt = `テーマ「${theme}」について、学年レベル「${settings.gradeLevel}」、検索モード「${settings.searchMode}」に合わせて調査してください。summaryはテーマ名「${theme}」を冒頭に明記したうえで、調査で分かった具体的な内容を3文以上で説明してください。題名だけのsummaryは禁止です。独立した出典を2件以上示し、各出典の信頼度を「高い」「中程度」「低い」のいずれかで必ず設定してください。reliability_scoreとconsistency_rateは0から100の百分率で採点し、0から1の小数尺度は使わないでください。信頼度スコアは厳格に採点し、安易に80以上をつけないでください。`;
+      const data = await callAI(prompt, SEARCH_SCHEMA, true, { task: "search", input: theme, settings });
+      setResult(normalizeSearchResult(data, { topic: theme }));
+    } catch (searchError) {
+      console.error("Search failed", searchError);
+      setError(searchError?.message || "調査結果を取得できませんでした。もう一度お試しください。");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const makeSummary = async (style) => {
-    const text = await callAI(`次の調査結果を${style}で要約してください: ${JSON.stringify(result)}`, null, false, { task: "summary", input: style, result });
-    setSummary(text);
+    setError("");
+    try {
+      const text = await callAI(`次の調査結果を${style}で要約してください: ${JSON.stringify(result)}`, null, false, { task: "summary", input: style, result });
+      setSummary(text);
+    } catch (summaryError) {
+      setError(summaryError?.message || "要約を作成できませんでした。");
+    }
   };
 
   const saveNote = async () => {
@@ -320,8 +334,14 @@ function SearchPage() {
 
   const generateRoute = async () => {
     setRouteLoading(true);
-    setRoute(await callAI(`テーマ「${theme}」の調べ学習ルートを6-8ステップで作ってください。`, ROUTE_SCHEMA, true, { task: "route", input: theme }));
-    setRouteLoading(false);
+    setError("");
+    try {
+      setRoute(await callAI(`テーマ「${theme}」の調べ学習ルートを6-8ステップで作ってください。`, ROUTE_SCHEMA, true, { task: "route", input: theme }));
+    } catch (routeError) {
+      setError(routeError?.message || "調べ学習ルートを作成できませんでした。");
+    } finally {
+      setRouteLoading(false);
+    }
   };
 
   return (
@@ -350,6 +370,11 @@ function SearchPage() {
         </div>
       </Panel>
       {loading && <Panel variant="flat"><Loader text="情報源を探索中..." /></Panel>}
+      {error && (
+        <div className="pixel-panel-flat border-destructive bg-destructive/10 p-4 animate-slide-in" role="alert">
+          <div className="flex items-center gap-2 text-destructive"><AlertTriangle size={16} /><span className="font-heading text-sm">{error}</span></div>
+        </div>
+      )}
       {saved && <div className="pixel-panel-flat bg-primary/10 border-primary p-3 text-center font-heading text-sm text-primary">{saved}</div>}
       {result && (
         <div className="space-y-4 animate-fade-in">
@@ -809,11 +834,12 @@ function Badge({ variant = "info", children }) {
   return <span className={`pixel-badge badge-${variant}`}>{children}</span>;
 }
 
-function ScoreBar({ label, score = 0 }) {
+function ScoreBar({ label, score }) {
+  const validScore = typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 100;
   return (
     <div className="scorebar">
-      <div className="flex justify-between font-heading text-xs mb-1"><span>{label}</span><span>{Math.round(score)}%</span></div>
-      <div className="scorebar-track"><span className={`scorebar-fill ${scoreVariant(score)}`} style={{ width: `${Math.max(0, Math.min(100, score))}%` }} /></div>
+      <div className="flex justify-between font-heading text-xs mb-1"><span>{label}</span><span>{validScore ? `${Math.round(score)}%` : "未取得"}</span></div>
+      <div className="scorebar-track"><span className={`scorebar-fill ${validScore ? scoreVariant(score) : "missing"}`} style={{ width: validScore ? `${score}%` : "0%" }} /></div>
     </div>
   );
 }
@@ -1044,12 +1070,14 @@ function NotFound() {
 }
 
 function scoreVariant(score) {
+  if (typeof score !== "number" || !Number.isFinite(score)) return "info";
   if (score >= 75) return "high";
   if (score >= 45) return "medium";
   return "low";
 }
 
 function scoreText(score) {
+  if (typeof score !== "number" || !Number.isFinite(score)) return "未取得";
   if (score >= 75) return "高い";
   if (score >= 45) return "中程度";
   return "低い";
