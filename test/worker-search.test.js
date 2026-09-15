@@ -67,3 +67,17 @@ test("the Worker rejects incomplete provider data instead of returning a sample"
   assert.equal(response.status, 502);
   assert.deepEqual(await response.json(), { ok: false, error: "AI request failed." });
 });
+
+test("the Worker rejects malformed non-search AI responses", async () => {
+  const request = new Request("https://studyshield.test/api/ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Origin": "https://studyshield.test" },
+    body: JSON.stringify({
+      prompt: "文章を検証してください。",
+      context: { task: "verify", input: "検証対象" }
+    })
+  });
+  const response = await worker.fetch(request, workersEnv({ reliability: "高い" }));
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { ok: false, error: "AI request failed." });
+});

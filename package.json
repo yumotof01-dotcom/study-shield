@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:worker": "wrangler dev --remote",
     "build": "vite build",
-    "lint": "node --check worker/index.js && node --check src/adapters/base44Adapter.js && node --check src/domain/searchResult.js",
+    "lint": "node --check worker/index.js && node --check src/adapters/base44Adapter.js && node --check src/domain/searchResult.js && node --check src/domain/aiResults.js",
     "test": "node --test",
     "preview": "vite preview",
     "deploy": "pnpm build && wrangler deploy"

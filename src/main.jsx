@@ -48,6 +48,16 @@ import {
   saveSettings
 } from "./adapters/base44Adapter.js";
 import { normalizeSearchResult } from "./domain/searchResult.js";
+import {
+  normalizeAuditResult,
+  normalizeQuestionsResult,
+  normalizeResearcherResult,
+  normalizeRouteResult,
+  normalizeSlidesResult,
+  normalizeTextResult,
+  normalizeVerificationResult,
+  safeHttpUrl
+} from "./domain/aiResults.js";
 import "./styles/original-studyshield.css";
 import "./styles/app.css";
 
@@ -298,7 +308,7 @@ function SearchPage() {
     setError("");
     try {
       const text = await callAI(`次の調査結果を${style}で要約してください: ${JSON.stringify(result)}`, null, false, { task: "summary", input: style, result });
-      setSummary(text);
+      setSummary(normalizeTextResult(text, "summary"));
     } catch (summaryError) {
       setError(summaryError?.message || "要約を作成できませんでした。");
     }
@@ -306,37 +316,48 @@ function SearchPage() {
 
   const saveNote = async () => {
     if (!result) return;
-    await base44.entities.Note.create({
-      title: theme,
-      theme,
-      summary: result.summary,
-      key_points: result.key_points || [],
-      keywords: result.related_keywords || [],
-      reference_urls: (result.sources || []).map((source) => source.url).filter(Boolean),
-      memo: "",
-      category: settings.searchMode === "一般" ? "その他" : settings.searchMode
-    });
-    flash(setSaved, "★ 知識保管庫に保存しました");
+    setError("");
+    try {
+      await base44.entities.Note.create({
+        title: theme,
+        theme,
+        summary: result.summary,
+        key_points: result.key_points || [],
+        keywords: result.related_keywords || [],
+        reference_urls: (result.sources || []).map((source) => source.url).filter(Boolean),
+        memo: "",
+        category: settings.searchMode === "一般" ? "その他" : settings.searchMode
+      });
+      flash(setSaved, "★ 知識保管庫に保存しました");
+    } catch (saveError) {
+      setError(saveError?.message || "ノートを保存できませんでした。");
+    }
   };
 
   const saveReferences = async () => {
     if (!result?.sources) return;
-    await base44.entities.Reference.bulkCreate(result.sources.map((source) => ({
-      title: source.title,
-      url: source.url,
-      source: source.publisher,
-      reliability: source.reliability,
-      theme,
-      notes: source.date
-    })));
-    flash(setSaved, "★ 出典一覧に保存しました");
+    setError("");
+    try {
+      await base44.entities.Reference.bulkCreate(result.sources.map((source) => ({
+        title: source.title,
+        url: source.url,
+        source: source.publisher,
+        reliability: source.reliability,
+        theme,
+        notes: source.date
+      })));
+      flash(setSaved, "★ 出典一覧に保存しました");
+    } catch (saveError) {
+      setError(saveError?.message || "出典を保存できませんでした。");
+    }
   };
 
   const generateRoute = async () => {
     setRouteLoading(true);
     setError("");
     try {
-      setRoute(await callAI(`テーマ「${theme}」の調べ学習ルートを6-8ステップで作ってください。`, ROUTE_SCHEMA, true, { task: "route", input: theme }));
+      const data = await callAI(`テーマ「${theme}」の調べ学習ルートを6-8ステップで作ってください。`, ROUTE_SCHEMA, true, { task: "route", input: theme });
+      setRoute(normalizeRouteResult(data));
     } catch (routeError) {
       setError(routeError?.message || "調べ学習ルートを作成できませんでした。");
     } finally {
@@ -425,11 +446,20 @@ function VerificationPage() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
   const run = async () => {
     if (!text.trim()) return;
     setLoading(true);
-    setResult(await callAI(`以下の文章を信頼性・出典・偏り・矛盾の観点で検証してください。\n${text}`, VERIFY_SCHEMA, true, { task: "verify", input: text }));
-    setLoading(false);
+    setResult(null);
+    setError("");
+    try {
+      const data = await callAI(`以下の文章を信頼性・出典・偏り・矛盾の観点で検証してください。\n${text}`, VERIFY_SCHEMA, true, { task: "verify", input: text });
+      setResult(normalizeVerificationResult(data));
+    } catch (verifyError) {
+      setError(verifyError?.message || "文章を検証できませんでした。");
+    } finally {
+      setLoading(false);
+    }
   };
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -443,6 +473,7 @@ function VerificationPage() {
         </div>
       </Panel>
       {loading && <Panel variant="flat"><Loader text="照合中..." /></Panel>}
+      <ErrorNotice message={error} />
       {result && (
         <div className="space-y-4 animate-fade-in">
           <Panel title="信頼性評価" icon={ShieldCheck} action={<Badge variant={result.reliability === "高い" ? "high" : result.reliability === "中程度" ? "medium" : "low"}>{result.reliability}</Badge>}>
@@ -477,6 +508,7 @@ function AIResearcherPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const scrollRef = useRef(null);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -487,9 +519,15 @@ function AIResearcherPage() {
     setInput("");
     setMessages((items) => [...items, { role: "user", content: question }]);
     setLoading(true);
-    const answer = await callAI(`あなたは学生の理解を助けるAI研究員です。以下の質問に答えてください。\n${question}`, AI_SCHEMA, false, { task: "ai", input: question });
-    setMessages((items) => [...items, { role: "assistant", content: answer }]);
-    setLoading(false);
+    setError("");
+    try {
+      const answer = await callAI(`あなたは学生の理解を助けるAI研究員です。以下の質問に答えてください。\n${question}`, AI_SCHEMA, false, { task: "ai", input: question });
+      setMessages((items) => [...items, { role: "assistant", content: normalizeResearcherResult(answer) }]);
+    } catch (aiError) {
+      setError(aiError?.message || "AI研究員から回答を取得できませんでした。");
+    } finally {
+      setLoading(false);
+    }
   };
   return (
     <div className="max-w-4xl mx-auto space-y-6 ai-page">
@@ -509,6 +547,7 @@ function AIResearcherPage() {
           <button onClick={() => send()} disabled={!input.trim() || loading} className="pixel-btn px-4 py-2.5 bg-primary text-primary-foreground"><Send size={16} /></button>
         </div>
       </Panel>
+      <ErrorNotice message={error} />
     </div>
   );
 }
@@ -522,28 +561,57 @@ function SlidesPage() {
   const [script, setScript] = useState("");
   const [scriptLoading, setScriptLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   const generate = async () => {
     if (!theme.trim()) return;
     setLoading(true);
-    setSlides(await callAI(`テーマ「${theme}」の発表用スライド構成を提案してください。`, SLIDE_SCHEMA, false, { task: "slides", input: theme }));
-    setQuestions(null);
-    setScript("");
-    setLoading(false);
+    setSlides(null);
+    setError("");
+    try {
+      const data = await callAI(`テーマ「${theme}」の発表用スライド構成を提案してください。`, SLIDE_SCHEMA, false, { task: "slides", input: theme });
+      setSlides(normalizeSlidesResult(data));
+      setQuestions(null);
+      setScript("");
+    } catch (slidesError) {
+      setError(slidesError?.message || "スライド構成を作成できませんでした。");
+    } finally {
+      setLoading(false);
+    }
   };
   const makeQuestions = async () => {
     setQuestionLoading(true);
-    setQuestions(await callAI(`スライド構成から想定質問を5つ作ってください。${JSON.stringify(slides)}`, QUESTIONS_SCHEMA, false, { task: "questions", input: theme }));
-    setQuestionLoading(false);
+    setError("");
+    try {
+      const data = await callAI(`スライド構成から想定質問を5つ作ってください。${JSON.stringify(slides)}`, QUESTIONS_SCHEMA, false, { task: "questions", input: theme });
+      setQuestions(normalizeQuestionsResult(data));
+    } catch (questionsError) {
+      setError(questionsError?.message || "想定質問を作成できませんでした。");
+    } finally {
+      setQuestionLoading(false);
+    }
   };
   const makeScript = async () => {
     setScriptLoading(true);
-    setScript(await callAI(`次のスライド構成をもとに5分想定の発表原稿を話し言葉で書いてください。${JSON.stringify(slides)}`, null, false, { task: "script", input: theme, result: slides }));
-    setScriptLoading(false);
+    setError("");
+    try {
+      const data = await callAI(`次のスライド構成をもとに5分想定の発表原稿を話し言葉で書いてください。${JSON.stringify(slides)}`, null, false, { task: "script", input: theme, result: slides });
+      setScript(normalizeTextResult(data, "script"));
+    } catch (scriptError) {
+      setError(scriptError?.message || "発表原稿を作成できませんでした。");
+    } finally {
+      setScriptLoading(false);
+    }
   };
   const saveRefs = async () => {
-    await base44.entities.Reference.bulkCreate((slides.references || []).map((ref) => ({ title: ref.title, url: ref.url, source: "", reliability: "中程度", theme, notes: "" })));
-    flash(setSaved, true);
+    setError("");
+    try {
+      if (!slides.references?.length) throw new Error("保存できる参考文献がありません。");
+      await base44.entities.Reference.bulkCreate(slides.references.map((ref) => ({ title: ref.title, url: ref.url, source: "", reliability: "中程度", theme, notes: "" })));
+      flash(setSaved, true);
+    } catch (saveError) {
+      setError(saveError?.message || "参考文献を保存できませんでした。");
+    }
   };
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -555,6 +623,7 @@ function SlidesPage() {
         </div>
       </Panel>
       {loading && <Panel variant="flat"><Loader text="スライド構成を構築中..." /></Panel>}
+      <ErrorNotice message={error} />
       {slides && (
         <div className="space-y-4 animate-fade-in">
           <Panel title={slides.title || "スライド構成"} icon={Presentation}>
@@ -603,11 +672,20 @@ function AuditPage() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
   const run = async () => {
     if (!text.trim()) return;
     setLoading(true);
-    setResult(await callAI(`以下のスライド文章を提出前にチェックしてください。\n${text}`, AUDIT_SCHEMA, true, { task: "audit", input: text }));
-    setLoading(false);
+    setResult(null);
+    setError("");
+    try {
+      const data = await callAI(`以下のスライド文章を提出前にチェックしてください。\n${text}`, AUDIT_SCHEMA, true, { task: "audit", input: text });
+      setResult(normalizeAuditResult(data));
+    } catch (auditError) {
+      setError(auditError?.message || "発表内容をチェックできませんでした。");
+    } finally {
+      setLoading(false);
+    }
   };
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -619,6 +697,7 @@ function AuditPage() {
         </div>
       </Panel>
       {loading && <Panel variant="flat"><Loader text="監査を実行中..." /></Panel>}
+      <ErrorNotice message={error} />
       {result && (
         <div className="space-y-4 animate-fade-in">
           <Panel title="監査結果" icon={ClipboardCheck} action={<Badge variant={result.presentation_ready ? "high" : "low"}>{result.presentation_ready ? "発表OK" : "要修正"}</Badge>}>
@@ -648,10 +727,17 @@ function NotesPage() {
   const [filter, setFilter] = useState("全て");
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyNote);
+  const [error, setError] = useState("");
   const load = async () => {
     setLoading(true);
-    setNotes(await base44.entities.Note.list("-updated_date", 200));
-    setLoading(false);
+    setError("");
+    try {
+      setNotes(await base44.entities.Note.list("-updated_date", 200));
+    } catch (loadError) {
+      setError(loadError?.message || "ノートを読み込めませんでした。");
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); }, []);
   const openNew = () => { setForm(emptyNote); setEditing("new"); };
@@ -670,21 +756,32 @@ function NotesPage() {
   };
   const save = async () => {
     const payload = { ...form, key_points: lines(form.key_points), keywords: lines(form.keywords), reference_urls: lines(form.reference_urls) };
-    if (editing === "new") await base44.entities.Note.create(payload);
-    else await base44.entities.Note.update(editing, payload);
-    setEditing(null);
-    load();
+    setError("");
+    try {
+      if (editing === "new") await base44.entities.Note.create(payload);
+      else await base44.entities.Note.update(editing, payload);
+      setEditing(null);
+      await load();
+    } catch (saveError) {
+      setError(saveError?.message || "ノートを保存できませんでした。");
+    }
   };
   const remove = async (id) => {
     if (!confirm("このノートを削除しますか？")) return;
-    await base44.entities.Note.delete(id);
-    load();
+    setError("");
+    try {
+      await base44.entities.Note.delete(id);
+      await load();
+    } catch (deleteError) {
+      setError(deleteError?.message || "ノートを削除できませんでした。");
+    }
   };
   const shown = filter === "全て" ? notes : notes.filter((note) => note.category === filter);
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <PageHeader icon={Library} eyebrow="// KNOWLEDGE VAULT" title="知識保管庫" desc="調べた内容を保存し、自分専用の知識庫として使えます" action={<button onClick={openNew} className="pixel-btn px-4 py-2.5 bg-primary text-primary-foreground text-xs inline-flex items-center gap-1.5"><Plus size={14} /> 新規ノート</button>} />
       <FilterBar items={categories} value={filter} onChange={setFilter} />
+      <ErrorNotice message={error} />
       {loading && <Loader text="ノートを読み込み中..." />}
       {!loading && shown.length === 0 && <Panel variant="flat"><p className="text-center text-sm text-muted-foreground py-8">ノートがありません。「新規ノート」から作成できます。</p></Panel>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -703,7 +800,7 @@ function NotesPage() {
           </div>
         ))}
       </div>
-      {editing && <NoteModal form={form} setForm={setForm} onClose={() => setEditing(null)} onSave={save} isNew={editing === "new"} />}
+      {editing && <NoteModal form={form} setForm={setForm} onClose={() => setEditing(null)} onSave={save} isNew={editing === "new"} error={error} />}
     </div>
   );
 }
@@ -715,31 +812,60 @@ function ReferencesPage() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyRef);
   const [copied, setCopied] = useState(false);
-  const load = async () => setRefs(await base44.entities.Reference.list("-updated_date", 200));
+  const [error, setError] = useState("");
+  const load = async () => {
+    try {
+      setRefs(await base44.entities.Reference.list("-updated_date", 200));
+    } catch (loadError) {
+      setError(loadError?.message || "出典を読み込めませんでした。");
+    }
+  };
   useEffect(() => { load(); }, []);
   const openNew = () => { setForm(emptyRef); setEditing("new"); };
   const openEdit = (ref) => { setForm({ ...emptyRef, ...ref }); setEditing(ref.id); };
   const save = async () => {
-    if (editing === "new") await base44.entities.Reference.create(form);
-    else await base44.entities.Reference.update(editing, form);
-    setEditing(null);
-    load();
+    setError("");
+    const normalizedUrl = form.url.trim() ? safeHttpUrl(form.url) : "";
+    if (form.url.trim() && !normalizedUrl) {
+      setError("URLは http:// または https:// で始まる正しい形式で入力してください。");
+      return;
+    }
+    try {
+      const payload = { ...form, url: normalizedUrl };
+      if (editing === "new") await base44.entities.Reference.create(payload);
+      else await base44.entities.Reference.update(editing, payload);
+      setEditing(null);
+      await load();
+    } catch (saveError) {
+      setError(saveError?.message || "出典を保存できませんでした。");
+    }
   };
   const remove = async (id) => {
     if (!confirm("この出典を削除しますか？")) return;
-    await base44.entities.Reference.delete(id);
-    load();
+    setError("");
+    try {
+      await base44.entities.Reference.delete(id);
+      await load();
+    } catch (deleteError) {
+      setError(deleteError?.message || "出典を削除できませんでした。");
+    }
   };
   const copyList = async () => {
     const text = refs.map((ref) => [ref.title, ref.source, ref.url].filter(Boolean).join(" / ") + (ref.reliability ? ` [信頼度: ${ref.reliability}]` : "")).join("\n");
-    await navigator.clipboard.writeText(text);
-    flash(setCopied, true);
+    setError("");
+    try {
+      await navigator.clipboard.writeText(text);
+      flash(setCopied, true);
+    } catch {
+      setError("クリップボードへコピーできませんでした。ブラウザの権限を確認してください。");
+    }
   };
   const shown = filter === "全て" ? refs : refs.filter((ref) => ref.reliability === filter);
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <PageHeader icon={BookOpen} eyebrow="// SOURCE MANAGER" title="出典一覧" desc="使った情報源を整理し、参考文献の作成を助けます" action={<div className="flex flex-wrap gap-2"><button onClick={copyList} className="pixel-btn px-4 py-2.5 bg-card text-accent text-xs inline-flex items-center gap-1"><Copy size={14} /> リストをコピー</button><button onClick={openNew} className="pixel-btn px-4 py-2.5 bg-primary text-primary-foreground text-xs inline-flex items-center gap-1"><Plus size={14} /> 出典を追加</button></div>} />
       {copied && <div className="pixel-panel-flat bg-primary/10 border-primary p-3 text-center font-heading text-sm text-primary">★ リストをコピーしました</div>}
+      <ErrorNotice message={error} />
       <FilterBar items={reliabilityFilters} value={filter} onChange={setFilter} />
       {shown.length === 0 && <Panel variant="flat"><p className="text-center text-sm text-muted-foreground py-8">出典がありません。「出典を追加」から登録できます。</p></Panel>}
       <div className="space-y-3">
@@ -751,7 +877,7 @@ function ReferencesPage() {
                 {ref.theme && <span className="text-xs text-muted-foreground ml-2">{ref.theme}</span>}
                 <h3 className="font-heading text-sm text-foreground mt-2">{ref.title}</h3>
                 {ref.source && <p className="text-xs text-muted-foreground mt-1">出典元: {ref.source}</p>}
-                {ref.url && <a href={ref.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline break-words">↗ {ref.url}</a>}
+                <ExternalLink url={ref.url} />
                 {ref.notes && <p className="text-xs text-muted-foreground mt-2">{ref.notes}</p>}
               </div>
               <div className="flex gap-2">
@@ -762,7 +888,7 @@ function ReferencesPage() {
           </div>
         ))}
       </div>
-      {editing && <ReferenceModal form={form} setForm={setForm} onClose={() => setEditing(null)} onSave={save} isNew={editing === "new"} />}
+      {editing && <ReferenceModal form={form} setForm={setForm} onClose={() => setEditing(null)} onSave={save} isNew={editing === "new"} error={error} />}
     </div>
   );
 }
@@ -770,11 +896,17 @@ function ReferencesPage() {
 function SettingsPage() {
   const [settings, setSettings] = useState(getSettings);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
   const update = (key, value) => {
     const next = { ...settings, [key]: value };
-    setSettings(next);
-    saveSettings(next);
-    flash(setSaved, true);
+    setError("");
+    try {
+      saveSettings(next);
+      setSettings(next);
+      flash(setSaved, true);
+    } catch (saveError) {
+      setError(saveError?.message || "設定を保存できませんでした。");
+    }
   };
   const resetTutorial = () => {
     clearTutorial();
@@ -786,6 +918,7 @@ function SettingsPage() {
       <SettingGroup title="学年レベル" icon={GraduationCap} desc="説明の深さを学年に合わせて調整します" options={["小学", "中学", "高校"]} value={settings.gradeLevel} onChange={(value) => update("gradeLevel", value)} />
       <SettingGroup title="検索モード" icon={Search} desc="科目に応じた検索の最適化" options={["一般", "歴史", "理科", "社会", "国語"]} value={settings.searchMode} onChange={(value) => update("searchMode", value)} />
       <SettingGroup title="要約スタイル" icon={FileText} desc="自動要約のデフォルト形式" options={["3行", "箇条書き", "発表用"]} value={settings.summaryStyle} onChange={(value) => update("summaryStyle", value)} />
+      <ErrorNotice message={error} />
       {saved && <div className="pixel-panel-flat bg-primary/10 border-primary p-3 text-center animate-fade-in"><span className="font-heading text-sm text-primary">★ 設定を保存しました</span></div>}
       <Panel title="チュートリアル" icon={Sparkles}>
         <p className="text-sm text-muted-foreground mb-4">アプリの使い方をもう一度見たい場合は、チュートリアルを再表示できます。</p>
@@ -848,6 +981,21 @@ function Loader({ text }) {
   return <div className="flex items-center gap-2 text-muted-foreground text-sm"><RefreshCw size={15} className="animate-spin text-primary" /><span>{text}</span></div>;
 }
 
+function ErrorNotice({ message }) {
+  if (!message) return null;
+  return (
+    <div className="pixel-panel-flat border-destructive bg-destructive/10 p-4 animate-slide-in" role="alert">
+      <div className="flex items-center gap-2 text-destructive"><AlertTriangle size={16} /><span className="font-heading text-sm">{message}</span></div>
+    </div>
+  );
+}
+
+function ExternalLink({ url, className = "text-xs text-primary hover:underline break-words" }) {
+  const safeUrl = safeHttpUrl(url);
+  if (!safeUrl) return null;
+  return <a className={className} href={safeUrl} target="_blank" rel="noreferrer">↗ {safeUrl}</a>;
+}
+
 function SourcesPanel({ sources }) {
   return (
     <Panel title="出典一覧" icon={BookOpen}>
@@ -858,7 +1006,7 @@ function SourcesPanel({ sources }) {
               <div>
                 <h3 className="font-heading text-sm text-foreground">{source.title}</h3>
                 <p className="text-xs text-muted-foreground mt-1">{source.publisher} / {source.date}</p>
-                <a className="text-xs text-primary hover:underline break-words" href={source.url} target="_blank" rel="noreferrer">↗ {source.url}</a>
+                <ExternalLink url={source.url} />
               </div>
               <Badge variant={source.reliability === "高い" ? "high" : source.reliability === "中程度" ? "medium" : "low"}>{source.reliability}</Badge>
             </div>
@@ -967,21 +1115,29 @@ function MarkdownText({ children }) {
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
   const copy = async () => {
-    await navigator.clipboard.writeText(String(text || ""));
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    try {
+      await navigator.clipboard.writeText(String(text || ""));
+      setFailed(false);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+      setFailed(true);
+      window.setTimeout(() => setFailed(false), 2000);
+    }
   };
   return (
     <button type="button" onClick={copy} className="pixel-btn copy-button bg-card text-accent" title="回答をコピー" aria-label="回答をコピー">
-      {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
-      <span>{copied ? "コピー済み" : "コピー"}</span>
+      {copied ? <CheckCircle2 size={14} /> : failed ? <AlertTriangle size={14} /> : <Copy size={14} />}
+      <span>{copied ? "コピー済み" : failed ? "コピー失敗" : "コピー"}</span>
     </button>
   );
 }
 
 function ReferenceLine({ refItem }) {
-  return <div className="pixel-panel-inset p-2.5"><p className="text-sm">{refItem.title}</p>{refItem.url && <a href={refItem.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">↗ {refItem.url}</a>}</div>;
+  return <div className="pixel-panel-inset p-2.5"><p className="text-sm">{refItem.title}</p><ExternalLink url={refItem.url} className="text-xs text-primary hover:underline" /></div>;
 }
 
 function QuestionItem({ q, index }) {
@@ -1012,9 +1168,10 @@ function SettingGroup({ title, icon, desc, options, value, onChange }) {
   );
 }
 
-function NoteModal({ form, setForm, onClose, onSave, isNew }) {
+function NoteModal({ form, setForm, onClose, onSave, isNew, error }) {
   return (
     <Modal title={isNew ? "新規ノート作成" : "ノート編集"} onClose={onClose} onSave={onSave} disabled={!form.title.trim()}>
+      <ErrorNotice message={error} />
       <Field label="タイトル *" value={form.title} onChange={(title) => setForm({ ...form, title })} placeholder="ノートのタイトル" />
       <div className="form-grid">
         <Field label="テーマ" value={form.theme} onChange={(theme) => setForm({ ...form, theme })} placeholder="調べたテーマ" />
@@ -1029,11 +1186,14 @@ function NoteModal({ form, setForm, onClose, onSave, isNew }) {
   );
 }
 
-function ReferenceModal({ form, setForm, onClose, onSave, isNew }) {
+function ReferenceModal({ form, setForm, onClose, onSave, isNew, error }) {
+  const invalidUrl = Boolean(form.url.trim() && !safeHttpUrl(form.url));
   return (
-    <Modal title={isNew ? "出典を追加" : "出典を編集"} onClose={onClose} onSave={onSave} disabled={!form.title.trim()}>
+    <Modal title={isNew ? "出典を追加" : "出典を編集"} onClose={onClose} onSave={onSave} disabled={!form.title.trim() || invalidUrl}>
+      <ErrorNotice message={error} />
       <Field label="資料名 *" value={form.title} onChange={(title) => setForm({ ...form, title })} placeholder="資料のタイトル" />
       <Field label="URL" value={form.url} onChange={(url) => setForm({ ...form, url })} placeholder="https://..." />
+      {invalidUrl && <p className="text-xs text-destructive">URLは http:// または https:// で始まる正しい形式で入力してください。</p>}
       <Field label="出典元" value={form.source} onChange={(source) => setForm({ ...form, source })} placeholder="出版社、サイト名など" />
       <label><span className="font-heading text-xs text-muted-foreground block mb-1">信頼度</span><select value={form.reliability} onChange={(event) => setForm({ ...form, reliability: event.target.value })} className="pixel-input px-3 py-2 w-full text-sm">{["高い", "中程度", "低い"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <Field label="関連テーマ" value={form.theme} onChange={(theme) => setForm({ ...form, theme })} placeholder="関連するテーマ" />

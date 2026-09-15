@@ -32,7 +32,7 @@ export const ROUTE_SCHEMA = {
 export const VERIFY_SCHEMA = {
   type: "object",
   properties: {
-    reliability: { type: "string" },
+    reliability: { type: "string", enum: ["高い", "中程度", "低い"] },
     sources_present: { type: "boolean" },
     multi_source_consistency: { type: "boolean" },
     is_outdated: { type: "boolean" },
@@ -40,7 +40,7 @@ export const VERIFY_SCHEMA = {
     has_bias: { type: "boolean" },
     has_contradictions: { type: "boolean" },
     confirmed_sources_count: { type: "number" },
-    consistency_rate: { type: "number" },
+    consistency_rate: { type: "number", minimum: 0, maximum: 100, description: "確認した資料間の一致率を0から100の百分率で示す。0から1の小数ではない。" },
     warnings: { type: "array", items: { type: "string" } },
     additional_check_recommended: { type: "boolean" },
     perspectives: { type: "array", items: { type: "object", properties: { view: { type: "string" }, summary: { type: "string" } } } },
@@ -79,8 +79,8 @@ export const QUESTIONS_SCHEMA = {
 export const AUDIT_SCHEMA = {
   type: "object",
   properties: {
-    issues: { type: "array", items: { type: "object", properties: { type: { type: "string" }, severity: { type: "string" }, description: { type: "string" }, suggestion: { type: "string" } } } },
-    overall_score: { type: "number" },
+    issues: { type: "array", items: { type: "object", properties: { type: { type: "string" }, severity: { type: "string", enum: ["高", "中", "低"] }, description: { type: "string" }, suggestion: { type: "string" } } } },
+    overall_score: { type: "number", minimum: 0, maximum: 100 },
     summary: { type: "string" },
     presentation_ready: { type: "boolean" }
   }
@@ -96,7 +96,11 @@ function read(key, fallback) {
 }
 
 function write(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    throw new Error("ブラウザの保存領域に書き込めませんでした。空き容量やプライベートブラウズ設定を確認してください。");
+  }
 }
 
 function makeEntity(name) {
@@ -190,7 +194,7 @@ export async function callAI(prompt, schema, addContextFromInternet = false, con
   }
   if (!response.ok || !payload?.ok) {
     if (response.status === 413) throw new Error("入力内容が長すぎます。短くしてからもう一度お試しください。");
-    throw new Error("調査結果を取得できませんでした。少し待ってからもう一度お試しください。");
+    throw new Error("AI処理を完了できませんでした。少し待ってからもう一度お試しください。");
   }
   return payload.data;
 }

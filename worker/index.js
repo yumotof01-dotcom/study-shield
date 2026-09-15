@@ -1,4 +1,13 @@
 import { normalizeSearchResult } from "../src/domain/searchResult.js";
+import {
+  normalizeAuditResult,
+  normalizeQuestionsResult,
+  normalizeResearcherResult,
+  normalizeRouteResult,
+  normalizeSlidesResult,
+  normalizeTextResult,
+  normalizeVerificationResult
+} from "../src/domain/aiResults.js";
 
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MAX_REQUEST_BYTES = 200_000;
@@ -178,9 +187,7 @@ async function invokeStudyShieldAI(payload, env) {
   for (const attempt of attempts) {
     try {
       const result = await attempt.run();
-      if (payload.context?.task === "search") {
-        result.data = normalizeSearchResult(result.data, { topic: payload.context?.input || "" });
-      }
+      result.data = normalizeTaskResult(result.data, payload.context);
       return result;
     } catch (error) {
       lastError = error;
@@ -188,6 +195,21 @@ async function invokeStudyShieldAI(payload, env) {
     }
   }
   throw lastError;
+}
+
+function normalizeTaskResult(data, context = {}) {
+  switch (context.task) {
+    case "search": return normalizeSearchResult(data, { topic: context.input || "" });
+    case "route": return normalizeRouteResult(data);
+    case "verify": return normalizeVerificationResult(data);
+    case "ai": return normalizeResearcherResult(data);
+    case "slides": return normalizeSlidesResult(data);
+    case "questions": return normalizeQuestionsResult(data);
+    case "audit": return normalizeAuditResult(data);
+    case "summary":
+    case "script": return normalizeTextResult(data, context.task);
+    default: return data;
+  }
 }
 
 async function callGroq(payload, env) {
